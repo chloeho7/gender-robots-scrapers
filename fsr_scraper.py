@@ -17,13 +17,14 @@ pagenum = 1
 
 api_link = "https://api.semanticscholar.org/graph/v1/paper/{}?fields=citationCount"
 
+api_author_link="https://api.semanticscholar.org/graph/v1/paper/{}/authors?fields=url"
+
 outfile = '0910test.csv'
 
 with open(outfile, 'w') as f:
+
     f.write("'conference name','publication year','paper name','link to paper','ciation count','first author name','first author link','last author name','last author link','... remaining authors name and link'\n")
 
-
-#two pages
     while pagenum <=2:
 
         #get page
@@ -32,60 +33,75 @@ with open(outfile, 'w') as f:
         soup = BeautifulSoup(page.content, "html.parser")
 
         #get confrence
-
+        conf = soup.find('div',class_="c-book-evaluation-divider").contents[3].a.text
+        print(conf)
+        #get year
+        yr = soup.find_all('div',class_="c-book-evaluation-divider")[2].p.text[-48:-44]
+        print(yr)
         #get papers
+        papers = soup.find_all('li',class_="c-card c-list-group__item c-card--flush u-pa-16")
 
         for paper in papers:
 
             #write conference name
-            f.write('"'+conference+'",')
+            f.write('"'+conf+'",')
             #write year
+            f.write('"'+yr+'",')
             #write paper title
-            f.write("'"+title+"',")#maybe change if commas cause issues
+            title = paper.h3.a
+            print(title["href"])
+            if pagenum == 1:
+                doi = title["href"][9:]
+            else:
+                doi = title["href"][-28:]
+            print(doi)
+            link = ("https://link.springer.com/chapter/"+doi)
+            f.write('"'+title.text+'",')#changed to "" bc commas cause issues
             #write paper link
             f.write("'"+link+"',")
-
             #use api with doi to find citation count
-            #doi = end of paper link
-            #temporarily leaving amnt of citations blank
-    #        f.write(",")
-            #commented out until more requests allowed
+            #uncommment below line to temporarily leave citation count blank 
+            #f.write(",")
             api_return = requests.get(api_link.format(doi))
             api_content = json.loads(api_return.content)
-            if("citationCount" in api_content):
-                cite_count = json.loads(api_return.content)["citationCount"]
-                f.write("'"+str(cite_count)+"',")
-            else:
-                f.write(",")
-                print(link)
-                print(api_return.content)
 
+            cite_count = api_content["citationCount"]
+            f.write("'"+str(cite_count)+"',")
 
-            #put all author info in lists
-            authors_list = []
+            #get authors
+            authors = paper.find('li',class_="c-author-list__item").text.split(",")
+
+            #use paper link for authors if find et. al
+            if any("et al." in author for author in authors):
+                paper_page = requests.get(link)
+                soup = BeautifulSoup(paper_page.content, "html.parser")
+                new_authors_info = soup.find_all('li',class_="c-article-author-list__item")
+                for i,author_info in enumerate(new_authors_info):
+                    if i < len(authors)-1:
+                        authors[i] = "'"+author_info.a.text+"'"
+                    else:
+                        authors.append("'"+author_info.a.text+"'")
+
+            #use author api to get all author links 
+            api_authors_return = requests.get(api_author_link.format(doi))
+            api_authors_content = json.loads(api_authors_return.content)["data"]
+            #put all author links in lists
             authors_links = []
-          #  authors = paper.cite.find_all('a')
-            for author in authors:
-                authors_list.append("'"+author.text+"'")
-                authors_links.append("'"+author["href"]+"'")
+            for author_info in api_authors_content:
+                authors_links.append("'"+author_info["url"]+"'")
+
             #write first author
-            f.write(authors_list[0])
+            f.write(authors[0])
             f.write(","+authors_links[0])
             #write last author
-            if len(authors_list)>1:
-                f.write(","+authors_list[-1])
-                if authors_links:
-                    f.write(","+authors_links[-1])
-                else:
-                    f.write(",")
+            if len(authors)>1:
+                f.write(","+authors[-1])
+                f.write(","+authors_links[-1])
             #write remaining authors
             i = 1
-            while i<len(authors_list)-1:
-                f.write(","+authors_list[i])
-                if authors_links:
-                    f.write(","+authors_links[i])
-                else:
-                    f.write(",")
+            while i<len(authors)-1:
+                f.write(","+authors[i])
+                f.write(","+authors_links[i])
                 i+=1
             f.write('\n')
-            pagenum += 1
+        pagenum += 1
